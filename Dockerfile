@@ -1,24 +1,23 @@
-FROM rust:1.70.0 as cargo-build
+FROM messense/rust-musl-cross:aarch64-musl as cargo-build
 
-WORKDIR /usr/src/onetun
-COPY Cargo.toml Cargo.toml
-
-# Placeholder to download dependencies and cache them using layering
-RUN mkdir src/
-RUN touch src/lib.rs
-RUN echo "fn main() {println!(\"if you see this, the build broke\")}" > src/main.rs
-RUN cargo build --release
-RUN rm -f target/x86_64-unknown-linux-musl/release/deps/myapp*
+ENV DEBIAN_FRONTEND="noninteractive"
+WORKDIR /home/rust/src
+COPY . .
 
 # Build the actual project
-COPY . .
 RUN cargo build --release
+RUN musl-strip target/aarch64-unknown-linux-musl/release/onetun
 
-FROM debian:11-slim
-RUN apt-get update
-RUN apt-get install dumb-init -y
+# Build dumb-init
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        musl-tools \
+    && cd dumb-init && CC=musl-gcc make
 
-COPY --from=cargo-build /usr/src/onetun/target/release/onetun /usr/local/bin/onetun
+FROM busybox:stable
+COPY --from=cargo-build /home/rust/src/target/aarch64-unknown-linux-musl/release/onetun /usr/local/bin/onetun
+COPY --from=cargo-build /home/rust/src/dumb-init/dumb-init /usr/local/bin/dumb-init
 
 # Run as non-root
 USER 1000
